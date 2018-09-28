@@ -13,8 +13,11 @@ dx/dt = dW * sigma + (x - theta)* lambda
 
 Where:
 dx/dt = change in the position of a microbial community on a particular axis of the PCoA plot 
+
 dW = the Weiner process which generates Brownian motion (effectively drawing the extent of displacement from a normal distribution)
+
 sigma = a constant that scales the Brownian motion component
+
 theta = the 'home position' or attractor for the community. Over time (in the absence of disturbance or e.g. seasonal effects that alter the mean composition) it is expected that this position will be the mean composition of microbiome samples from an individual. It is also expected that in a stable community this will be the centroid of samples taken from an individual longitudinally.
 
 The initial q2-karenina release allows for fitting of Ornstein-Uhlenbeck models to QIIME2 ordination results using the fit_spatial_ornstein_uhlenbeck visualizer, and returns the parameters for the model fit. Future development will wrap other functionality in karenina such as simulation of QIIME2-compatible OrdinationResult and Metadata files based on Ornstein-Uhlenbeck model parameters, benchmarks of the model fitting procedure, and visualization.
@@ -22,7 +25,9 @@ The initial q2-karenina release allows for fitting of Ornstein-Uhlenbeck models 
 Models can either be fit to timeseries from each subject separately (individual fit), or can be fit to all individuals within a treatment collectively (cohort fit) using the spatial_ornstein_uhlenbeck.py script
 
 **Inputs**
+
 QIIME2 Ordination Results
+
 QIIME2 Metadata (if metadata are not embedded in Ordination Results)
 
 In practice, the sample should have multiple time-points per individual.
