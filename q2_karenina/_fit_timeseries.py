@@ -3,142 +3,75 @@ from __future__ import division
 
 __author__ = "Jesse Zaneveld"
 __copyright__ = "Copyright 2016, The Karenina Project"
-__credits__ = ["Jesse Zaneveld"]
+__credits__ = ["Jesse Zaneveld","Samuel L. Peoples"]
 __license__ = "GPL"
-__version__ = "0.0.1-dev"
+__version__ = "0.1-dev"
 __maintainer__ = "Jesse Zaneveld"
 __email__ = "zaneveld@gmail.com"
 __status__ = "Development"
 
-import karenina.fit_timeseries as k_fit_timeseries
-import pkg_resources
-import qiime2
-import q2templates
-from q2_types.ordination import PCoAResults
-import pandas as pd
-import os
+from q2templates import render
+from os.path import join
+from pkg_resources import resource_filename
+from karenina.fit_timeseries import parse_pcoa,parse_metadata,fit_input
 
 def fit_timeseries(output_dir: str, pcoa : str, metadata:str, method : str, 
                 individual_col: str, timepoint_col: str, treatment_col: str) -> None:
-    #pcoa = PCoAResults.read(pcoa).to_dataframe()
-    #metadata = metadata.to_dataframe()
+    
+    #Handle missing parameters from user interface
     if 'None' in metadata:
 	    metadata = None
     if 'None' in treatment_col:
 	    treatment_col = None
-    site, metadata = k_fit_timeseries.parse_pcoa(pcoa, individual_col, timepoint_col, treatment_col, metadata=None)
-    input = k_fit_timeseries.parse_metadata(metadata, individual_col, timepoint_col, treatment_col, site)
-    #site = _parse_pcoa(pcoa)
-    #input = _parse_metadata(metadata, individual_col, timepoint_col, treatment_col, site)
+
+    #read in and format input data     
+    site, metadata = parse_pcoa(pcoa, individual_col,\
+      timepoint_col, treatment_col, metadata=None)
+    model_input = parse_metadata(metadata, individual_col,\
+      timepoint_col, treatment_col, site)
+   
+     
     if treatment_col is not None:
-        output, cohort_output = k_fit_timeseries.fit_input(input, individual_col, timepoint_col, treatment_col, method)
-        cohort_output.to_csv(os.path.join(output_dir,"cohort_fit_timeseries.csv"), index=False)
+        #If there is a non-empty treatment column, then fit a cohort model,
+        # in which all individuals with the same treatment
+        #have the same model parameters.
+        
+        output, cohort_output = fit_input(model_input,\
+          individual_col, timepoint_col, treatment_col, method)
+        
+        result = cohort_output
+        plot_name = 'Ornstein-Uhlenbeck cohort model fit results (treatment = {},method={})'.format(treatment_col,method)
     else:
-        output = k_fit_timeseries.fit_input(input, individual_col, timepoint_col, treatment_col, method)
-    output.to_csv(os.path.join(output_dir,"individual_fit_timeseries.csv"), index=False)
-	
+        #IF no treatment is provided, fit a model to each individual
+ 
+       result = fit_input(model_input, individual_col,\
+          timepoint_col, treatment_col, method)
+ 
+       plot_name = 'Ornstein-Uhlenbeck individual model fit results (method={})'.format(method)
+   
+    #Output the results (individual or cohort based model fit) to a CSV filte 
+    result.to_csv(join(output_dir,"fit_timeseries_results.csv"), index=False)
 
-def _parse_pcoa(pcoa):
-    # Parse PCoA Contents
-    pcoa = open(pcoa,"rb")
-    lines = pcoa.readlines()
-    site = []
-    i = 0
-    for line in lines:
-        line = line.decode("utf-8")
-        if line.startswith("Eigvals"):
-            eigs = lines[i+1].decode("utf-8").strip('\n').strip('\r').split("\t")
-        elif line.startswith("Proportion explained"):
-            propEx = lines[i+1].decode("utf-8").strip('\n').strip('\r').split("\t")
-        elif line.startswith("Species"):
-            species = lines[i + 1].decode("utf-8").strip('\n').strip('\r').split("\t")
-
-        elif line.startswith("Site"):
-            # We don't want Site constraints.
-            if ("constraints") in line:
-                break
-            max = int(line.split("\t")[1])+i
-            j = i + 1
-            while j <= max:
-                t_line = lines[j].decode('utf-8')
-                site.append(t_line.strip('\n').strip('\r').split("\t"))
-                j += 1
-        i += 1
-    t_site = []
-    for item in site:
-        t_site.append([item[0],item[1],item[2],item[3]])
-    site = t_site
-
-    #We now have variables:
-            #First three are stored for now, will be utilized later when standardization of axes can be supported.
-        # eigs: every eigenvalue
-        # propEx: every proportion explained
-        # species: every species
-
-        # site: Every site, with the highest three proportion-explained PCs, in the form:
-            # subjectID, x1, x2, x3
-    return site
-
-def _parse_metadata(metadata, individual_col, timepoint_col, treatment_col, site):
-    df = pd.read_csv(metadata,sep="\t")
-    # Drop any rows that are informational
-    while df.iloc[0][0].startswith("#"):
-	    df.drop(df.index[:1], inplace=True)
-	
-    # Combine Individual columns if multiple subject identifiers defined (Such as individual and site)
-    if "," in individual_col:
-        individual_temp = individual_col.split(",")
-        df_ind = df[individual_temp[0]]
-
-        # Iterate over the columns and combine on each pass
-        for i in range(len(individual_temp)):
-            if i == 0:
-                pass
-            else:
-                df_ind = pd.concat([df_ind,df[individual_temp[i]]],axis=1)
-
-        # Hyphenate the white space between identifiers
-        for i in range(len(individual_temp)):
-            if i == 0:
-                pass
-            else:
-                df_ind = df_ind[individual_temp[0]].astype(str)+"_"+df_ind[individual_temp[1]]
-
-        # Remove any user-generated white space
-        inds = []
-        for row in df_ind.iteritems():
-            inds.append(row[1].replace(" ","-"))
-        df_ind = pd.DataFrame({individual_col:inds})
-        # Reindex to match dataframes to be merged
-        df_ind.index += 1
-    else:
-        df_ind = df[individual_col]
-
-    df_tp = df[timepoint_col]
-    
-    #Copy individual column into treatment if none assigned
-    if treatment_col is not None:
-        df_tx = df[treatment_col]
-    else:
-        df_tx = df_ind.copy()
-        df_tx.columns=[str(df_tx.columns.values[0])+"_tx"]
-
-    # Force timepoint to numerics
-    df_tp = df_tp.replace('[^0-9]','', regex=True)
+    #Generate the index.html file required by QIIME2 by filling in the template
+    render_index_html(output_dir,plot_name)
 
 
-    # Build the return dataframe
-    df_ret = pd.concat([df[df.columns[0]], df_ind, df_tp, df_tx], axis=1)
+def render_index_html(output_dir,plot_name):
 
-    df_site = pd.DataFrame.from_records(site, columns=["#SampleID","pc1","pc2","pc3"])
+    #Find the filepath for the q2_emperor folder 'assets'.
+    #NOTE: to understand what's happening here see e.g. stackoverflow example here:
+    #https://stackoverflow.com/questions/39104/finding-a-file-in-a-python-module-distribution
 
-    df_ret = pd.merge(df_ret, df_site, on="#SampleID", how='inner')
+    template_dir = resource_filename('q2_karenina', 'assets')
 
-    if "," in individual_col:
-        df_ret.rename(columns = {0:str(individual)}, inplace=True)
+    #get the path to our basic, unfilled index.html file (in the assets folder of q2_emperor)
+    index = join(template_dir, 'index.html')
 
-    #Now have a full dataframe with sampleIDs, Subject Identifiers, timepoints, treatment, and initial x coordinates.
-        #Preserves only values which have initial positions, drops null coordinates.
-        #In example files, L3S242 was in metadata File, but not in the PCOA file, so there was one less in the df_ret.
-    return df_ret
+    #Use q2_templates.render to fill in data specific to our output in this visualization.
+    #Documentation for q2_templates.render is available here:
+    # https://github.com/qiime2/q2templates/blob/master/q2templates/_templates.py
+
+    render(index, output_dir, context={'plot_name': plot_name})
+
+
 
